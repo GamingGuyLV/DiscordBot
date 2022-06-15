@@ -1,2 +1,2 @@
 # DiscordBot
-My own discord boy written mostly in pycord.
+My own discord bot written mostly in pycord.
