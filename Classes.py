@@ -21,7 +21,8 @@ class HelpSelectView(View):
                 discord.SelectOption(label="Music", description="Music command help..."),
                 discord.SelectOption(label="Fun", description="Fun command help..."),
                 discord.SelectOption(label="Tournaments/Betting", description="Tour command help..."),
-                discord.SelectOption(label="Misc", description="Misc command help...")
+                discord.SelectOption(label="Misc", description="Misc command help..."),
+                discord.SelectOption(label="About", description="About the bot...")
             ])
     async def callback(self, select, interaction):
         if select.values[0] == "General":
@@ -34,6 +35,7 @@ class HelpSelectView(View):
             embed.add_field(name="***Fun***", value="`Rick`  `Hyper`  `UwUsify`  `CoinFlip`", inline=False)
             embed.add_field(name="***Custom tournaments/betting*** (Dealer)", value="`<Balance>`  `<Bet>`  `<Donate>` `'<Give>'`  `'<CreateBet>'`", inline=False)
             embed.add_field(name="***Misc***", value="`Ping`  `Colors`  `BotBug`  `BotSuggest`", inline=False)
+            embed.add_field(name="***About***", value="`About the bot.`", inline=False)
             embed.set_footer(text=f"Code version - {code_version}")
             await interaction.response.edit_message(embed=embed)
     
@@ -110,6 +112,14 @@ class HelpSelectView(View):
             embed.add_field(name="***Colors***", value="`Sends an embed with the selected color. /colors $color$`", inline=False)
             embed.add_field(name="***BotBug***", value="`Report a bug to me! Usage: /botbug $Title$ $Bug$`", inline=False)
             embed.add_field(name="***BotSuggest***", value="`Suggest a feature! Usage: /botsuggest $Title$ $Suggestion$`", inline=False)
+            embed.set_footer(text=f"Code version - {code_version}")
+            await interaction.response.edit_message(embed=embed)
+
+        if select.values[0] == "About":
+            embed = discord.Embed(
+            colour= discord.Colour.orange()
+            )
+            embed.set_author(name="This is an all-in-one bot i am working on in my spare time, if you have suggestions or bugs to report use the appropriate commands to do so. If you want to, you can check it out on github by clicking on the text!", url='https://github.com/GamingGuyLV/DiscordBot')
             embed.set_footer(text=f"Code version - {code_version}")
             await interaction.response.edit_message(embed=embed)
         
