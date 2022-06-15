@@ -9,7 +9,6 @@ from discord.commands import Option
 import asyncio
 import random
 from random import randint
-import youtube_dl
 from Classes import HelpSelectView, CreateBetModal
 from Version import code_version
 import sqlite3
@@ -17,8 +16,6 @@ import sqlite3
 
 
 # --------------------------------------------------------------------
-
-secretbot = commands.Bot(intents=discord.Intents.all())
 bot = discord.Bot(intents=discord.Intents.all())
 voice = discord.VoiceClient
 
@@ -226,8 +223,7 @@ cur.execute('''
 
 #-----------------------------------------blacklist
 cur.execute('''
-  CREATE TABLE IF NOT EXISTS blacklist (
-    servermemberid TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS blacklist (
     servername TEXT NOT NULL,
     frases TEXT
     )
@@ -383,129 +379,108 @@ async def kick(
 
   await ctx.respond(embed=embed)
 
-
-@bot.slash_command(description = "Blacklists a frase.") # ------------------------------------------------------------------------Blacklist
+@bot.slash_command(description = "Prints out the blacklist.") # ------------------------------------------------------------------------Blacklist
 @commands.has_permissions(manage_messages=True)
 async def blacklist(
+  ctx: discord.ApplicationContext,
+):
+
+  servername = ctx.guild.name
+
+  cur.execute("SELECT frases FROM blacklist WHERE servername=?", (servername, ))
+  frases = cur.fetchone()
+
+  if not frases:
+    await ctx.respond("No frases are blacklisted on this server.")
+  
+  else:
+    for x in frases:
+      frases = eval(x)
+    
+    await ctx.respond(frases, ephemeral=True)
+
+@bot.slash_command(description = "Blacklists a frase.") # ------------------------------------------------------------------------Blacklistadd
+@commands.has_permissions(manage_messages=True)
+async def blacklistadd(
   ctx: discord.ApplicationContext,
   frase: Option(str, "Enter the frase you want blacklisted.", required = True)
 ):
 
+  servername = ctx.guild.name
+
+  cur.execute("SELECT frases FROM blacklist WHERE servername=?", (servername, ))
+  frases = cur.fetchone()
+
+  if not frases:
+    frases = []
+    frases.append(frase)
+    frases = str(frases)
+    cur.execute("INSERT INTO blacklist (servername, frases) VALUES (?, ?)", (servername, frases))
+    con.commit()
+    await ctx.respond("Done", ephemeral=True)
   
-  return
+  else:
+    for x in frases:
+      frases = eval(x)
+
+    if frase in frases:
+      await ctx.respond("That frase already is blacklisted.", ephemeral=True)
+    
+    else:
+      frases.append(frase)
+      frases = str(frases)
+
+      cur.execute("UPDATE blacklist SET frases=? WHERE servername=?", (frases, servername))
+      con.commit()
+
+      await ctx.respond("Done", ephemeral=True)
+
+@bot.slash_command(description = "Removes a frase from blacklist.") # ------------------------------------------------------------------------Blacklistrm
+@commands.has_permissions(manage_messages=True)
+async def blacklistrm(
+  ctx: discord.ApplicationContext,
+  frase: Option(str, "Enter the frase you want removed.", required = True)
+):
+
+  servername = ctx.guild.name
+
+  cur.execute("SELECT frases FROM blacklist WHERE servername=?", (servername, ))
+  frases = cur.fetchone()
+
+  if not frases:
+    await ctx.respond("No frases are blacklisted on this server.")
+  
+  else:
+    for x in frases:
+      frases = eval(x)
+
+    frases.remove(frase)
+    frases = str(frases)
+
+    cur.execute("UPDATE blacklist SET frases=? WHERE servername=?", (frases, servername))
+    con.commit()
+
+    await ctx.respond("Done", ephemeral=True)
+
+@bot.event
+async def on_message(message):
+  servername = str(message.guild)
+
+  cur.execute("SELECT frases FROM blacklist WHERE servername=?", (servername, ))
+  frases = cur.fetchone()
+
+  if frases:
+    for x in frases:
+      frases = eval(x)
+
+    if message.content in frases:
+      await message.delete()
+  
+  else:
+    return
 
 #######################################################################################################################
-# ----------------------------------------------------------------------------------------------------Music commands
-
-youtube_dl.utils.bug_reports_message = lambda: ""
-
-
-ytdl_format_options = {
-  "format": "bestaudio/best",
-  "outtmpl": "%(extractor)s-%(id)s-%(title)s.%(ext)s",
-  "restrictfilenames": True,
-  "noplaylist": True,
-  "nocheckcertificate": True,
-  "ignoreerrors": False,
-  "logtostderr": False,
-  "quiet": True,
-  "no_warnings": True,
-  "default_search": "auto",
-  "source_address": "0.0.0.0",  # Bind to ipv4 since ipv6 addresses cause issues at certain times
-}
-
-ffmpeg_options = {"options": "-vn"}
-
-ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
-
-
-class YTDLSource(discord.PCMVolumeTransformer):
-  def __init__(self, source, *, data, volume=0.5):
-      super().__init__(source, volume)
-
-      self.data = data
-
-      self.title = data.get("title")
-      self.url = data.get("url")
-
-  @classmethod
-  async def from_url(cls, url, *, loop=None, stream=False):
-      loop = loop or asyncio.get_event_loop()
-      data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=not stream))
-
-      if "entries" in data:
-          # Takes the first item from a playlist
-          data = data["entries"][0]
-
-      filename = data["url"] if stream else ytdl.prepare_filename(data)
-      return cls(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
-
-
-
-@bot.slash_command(description = "Connects bot to your voice channel.")
-async def connect(ctx: discord.ApplicationContext, self): # ----------------------------------------------------------------------------Connect
-  if ctx.author.voice is None:
-    await ctx.respond("You are not in a voice channel.", ephemeral = True)
-
-  elif ctx.voice_client is None:
-    channel = ctx.author.voice.channel
-    await discord.VoiceChannel.connect(channel)
-    await ctx.respond("Connected.", ephemeral = True)
-
-  elif ctx.voice_client is not None:
-    channel = ctx.author.voice.channel
-    await ctx.voice_client.move_to(channel)
-    await ctx.respond("Moved to your channel.", ephemeral = True)
-
-@bot.slash_command(description = "Disconnects bot to your voice channel.")
-async def disconnect(ctx): # -----------------------------------------------------------------------Disconnect
-  if ctx.voice_client is None:
-    await ctx.respond("I am not in a channel right now.", ephemeral = True)
-  elif ctx.voice_client is not None:
-    await ctx.voice_client.disconnect()
-    await ctx.respond("Disconnected.", ephemeral = True)
-
-@bot.slash_command(description = "Plays audio from the entered youtube URL.")
-async def plays(
-  self,
-  ctx,
-  *,
-  url: Option(str, "Enter the URL/Link.", default=None)
-): # -------------------------------------------------------------------------------------------------Play
-  async with ctx.typing():
-    player = await YTDLSource.from_url(url, loop=self.bot.loop, stream=True)
-    ctx.voice_client.play(player, after=lambda e: print(f"Player error: {e}") if e else None)
-
-  await ctx.respond(f"Now playing: {player.title}")
-
-
-@bot.slash_command(description = "Pauses playback.")
-async def pause(ctx):
-  return
-
-@bot.slash_command(description = "Resumes playback.")
-async def resume(ctx):
-  return
-
-@bot.slash_command()
-async def skip(ctx):
-  return
-
-@bot.slash_command()
-async def loopsong(ctx):
-  return
-
-@bot.slash_command()
-async def loopqueue(ctx):
-  return
-
-@bot.slash_command()
-async def current(ctx):
-  return
-
-###################################################################################################################
 # ----------------------------------------------------------------------------------------------------Fun commands
-
 
 
 @bot.slash_command(description = "Insults the mentioned member.") # --------------------------------------------------------Insult
