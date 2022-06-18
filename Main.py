@@ -229,13 +229,14 @@ cur.execute('''
 
 # -------------------------------------------blackjack
 cur.execute('''
-  CREATE TABLE IF NOT EXISTS blackjack (
+    CREATE TABLE IF NOT EXISTS blackjack (
     servermemberid TEXT NOT NULL,
-    winnings REAL NOT NULL,
+    winnings REAL,
     membername TEXT NOT NULL,
     servername TEXT NOT NULL,
     wins INT,
-    losses INT
+    losses INT,
+    bets REAL
     )
 ''')
 
@@ -1538,7 +1539,7 @@ async def blackjack(ctx, bet: Option(float, "How much you want to bet?", require
   cur.execute('''SELECT servermemberid FROM blackjack WHERE servermemberid=?''', (gmid, ))
   x = cur.fetchone()
   if not x:
-    cur.execute('''INSERT INTO blackjack (servermemberid, winnings, membername, servername, wins, losses) VALUES (?, 0, ?, ?, 0, 0)''', (gmid, membername, servername))
+    cur.execute('''INSERT INTO blackjack (servermemberid, winnings, membername, servername, wins, losses, bets) VALUES (?, 0, ?, ?, 0, 0, 0)''', (gmid, membername, servername))
     con.commit()
 
   cur.execute('''SELECT balance FROM balances WHERE servermemberid=?''', (gmid, ))
@@ -1555,6 +1556,7 @@ async def blackjack(ctx, bet: Option(float, "How much you want to bet?", require
     embed.add_field(name="Blackjack", value=f"You do not have an account opened on this server. Do so with /register")
     embed.set_footer(text=f"Code version - {code_version}")
     await ctx.respond(embed=embed)
+    return
 
   if balance < bet:
 
@@ -1566,8 +1568,25 @@ async def blackjack(ctx, bet: Option(float, "How much you want to bet?", require
     await ctx.respond(embed=embed)
     return
 
+  if bet <= 0:
+
+    embed = discord.Embed(
+      colour = discord.Colour.brand_red(),
+    )
+    embed.add_field(name="Blackjack", value=f"You can't bet zero or negative amount.")
+    embed.set_footer(text=f"Code version - {code_version}")
+    await ctx.respond(embed=embed)
+    return
+
   else:
+    cur.execute('''SELECT bets FROM blackjack WHERE servermemberid=?''', (gmid, ))
+    x = cur.fetchone()
+    for z in x:
+      bets = float(z)
+
+    bets += bet
     balance -= bet
+    cur.execute('''UPDATE blackjack SET bets=? WHERE servermemberid=?''', (bets, gmid))
     cur.execute('''UPDATE balances SET balance=? WHERE servermemberid=?''', (balance, gmid))
     con.commit()
 
@@ -1615,14 +1634,13 @@ async def blackjack(ctx, bet: Option(float, "How much you want to bet?", require
   async def hit_callback(interaction):
     if interaction.user == ctx.author:
       hit(player_hand)
-      print(dealer_hand)
 
       if total(player_hand) > 21:
         new_embed = discord.Embed(
           colour= discord.Colour.brand_green()
         )
         new_embed.set_author(name=f"Blackjack with @{ctx.author.display_name} for a bet of {bet}")
-        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand[0]), value=f"|", inline=False)
+        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand) + " for a total of " + str(total(dealer_hand)), value=f"|", inline=False)
         new_embed.add_field(name=f"You have a " + str(player_hand) + " for a total of " + str(total(player_hand)), value=f"|", inline=False)
         new_embed.add_field(name=f"You have busted, you lose, sorry.", value=f"|", inline=False)
         new_embed.set_footer(text=f"Code version - {code_version}")
@@ -1636,6 +1654,48 @@ async def blackjack(ctx, bet: Option(float, "How much you want to bet?", require
         losses += 1
 
         cur.execute('''UPDATE blackjack SET losses=? WHERE servermemberid=?''', (losses, gmid))
+        con.commit()
+
+        await interaction.response.edit_message(embed=new_embed, view=None)
+
+      elif total(player_hand) == 21:
+        new_embed = discord.Embed(
+          colour= discord.Colour.brand_green()
+        )
+        new_embed.set_author(name=f"Blackjack with @{ctx.author.display_name} for a bet of {bet}")
+        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand) + " for a total of " + str(total(dealer_hand)), value=f"|", inline=False)
+        new_embed.add_field(name=f"You have a " + str(player_hand) + " for a total of " + str(total(player_hand)), value=f"|", inline=False)
+        new_embed.add_field(name=f"You got a blackjack! You win!", value=f"|", inline=False)
+        new_embed.set_footer(text=f"Code version - {code_version}")
+
+        cur.execute('''SELECT wins FROM blackjack WHERE servermemberid=?''', (gmid, ))
+        x = cur.fetchone()
+        if x:
+          for z in x:
+            wins = int(z)
+
+        wins += 1
+
+        cur.execute('''UPDATE blackjack SET wins=? WHERE servermemberid=?''', (wins, gmid))
+
+        cur.execute('''SELECT winnings FROM blackjack WHERE servermemberid=?''', (gmid, ))
+        x = cur.fetchone()
+        if x:
+          for z in x:
+            winnings = int(z)
+
+        winnings += bet
+
+        cur.execute('''UPDATE blackjack SET winnings=? WHERE servermemberid=?''', (winnings, gmid))
+
+        cur.execute('''SELECT balance FROM balances WHERE servermemberid=?''', (gmid, ))
+        x = cur.fetchone()
+        for z in x:
+          balance = z
+          balance = round(balance, 2)
+        balance += bet*2
+        cur.execute('''UPDATE balances SET balance=? WHERE servermemberid=?''', (balance, gmid))
+
         con.commit()
 
         await interaction.response.edit_message(embed=new_embed, view=None)
@@ -1659,12 +1719,54 @@ async def blackjack(ctx, bet: Option(float, "How much you want to bet?", require
       while total(dealer_hand) < 17:
         hit(dealer_hand)
 
+      if total(player_hand) == 21:
+        new_embed = discord.Embed(
+          colour= discord.Colour.brand_green()
+        )
+        new_embed.set_author(name=f"Blackjack with @{ctx.author.display_name} for a bet of {bet}")
+        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand) + " for a total of " + str(total(dealer_hand)), value=f"|", inline=False)
+        new_embed.add_field(name=f"You have a " + str(player_hand) + " for a total of " + str(total(player_hand)), value=f"|", inline=False)
+        new_embed.add_field(name=f"You got a blackjack! You win!", value=f"|", inline=False)
+        new_embed.set_footer(text=f"Code version - {code_version}")
+
+        cur.execute('''SELECT wins FROM blackjack WHERE servermemberid=?''', (gmid, ))
+        x = cur.fetchone()
+        if x:
+          for z in x:
+            wins = int(z)
+
+        wins += 1
+
+        cur.execute('''UPDATE blackjack SET wins=? WHERE servermemberid=?''', (wins, gmid))
+
+        cur.execute('''SELECT winnings FROM blackjack WHERE servermemberid=?''', (gmid, ))
+        x = cur.fetchone()
+        if x:
+          for z in x:
+            winnings = int(z)
+
+        winnings += bet
+
+        cur.execute('''UPDATE blackjack SET winnings=? WHERE servermemberid=?''', (winnings, gmid))
+
+        cur.execute('''SELECT balance FROM balances WHERE servermemberid=?''', (gmid, ))
+        x = cur.fetchone()
+        for z in x:
+          balance = z
+          balance = round(balance, 2)
+        balance += bet*2
+        cur.execute('''UPDATE balances SET balance=? WHERE servermemberid=?''', (balance, gmid))
+
+        con.commit()
+
+        await interaction.response.edit_message(embed=new_embed, view=None)
+
       if total(dealer_hand) > 21:
         new_embed = discord.Embed(
           colour= discord.Colour.brand_green()
         )
         new_embed.set_author(name=f"Blackjack with @{ctx.author.display_name} for a bet of {bet}")
-        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand), value=f"|", inline=False)
+        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand) + " for a total of " + str(total(dealer_hand)), value=f"|", inline=False)
         new_embed.add_field(name=f"You have a " + str(player_hand) + " for a total of " + str(total(player_hand)), value=f"|", inline=False)
         new_embed.add_field(name=f"Dealer busted! You win!", value=f"|", inline=False)
         new_embed.set_footer(text=f"Code version - {code_version}")
@@ -1706,7 +1808,7 @@ async def blackjack(ctx, bet: Option(float, "How much you want to bet?", require
           colour= discord.Colour.brand_green()
         )
         new_embed.set_author(name=f"Blackjack with @{ctx.author.display_name} for a bet of {bet}")
-        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand), value=f"|", inline=False)
+        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand) + " for a total of " + str(total(dealer_hand)), value=f"|", inline=False)
         new_embed.add_field(name=f"You have a " + str(player_hand) + " for a total of " + str(total(player_hand)), value=f"|", inline=False)
         new_embed.add_field(name=f"Dealer got a blackjack, you lose, sorry.", value=f"|", inline=False)
         new_embed.set_footer(text=f"Code version - {code_version}")
@@ -1726,9 +1828,9 @@ async def blackjack(ctx, bet: Option(float, "How much you want to bet?", require
           colour= discord.Colour.brand_green()
         )
         new_embed.set_author(name=f"Blackjack with @{ctx.author.display_name} for a bet of {bet}")
-        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand), value=f"|", inline=False)
+        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand) + " for a total of " + str(total(dealer_hand)), value=f"|", inline=False)
         new_embed.add_field(name=f"You have a " + str(player_hand) + " for a total of " + str(total(player_hand)), value=f"|", inline=False)
-        new_embed.add_field(name=f"You got a blackjack! You win!", value=f"|", inline=False)
+        new_embed.add_field(name=f"You got more than the dealer! You win!", value=f"|", inline=False)
         new_embed.set_footer(text=f"Code version - {code_version}")
 
         cur.execute('''SELECT wins FROM blackjack WHERE servermemberid=?''', (gmid, ))
@@ -1768,7 +1870,7 @@ async def blackjack(ctx, bet: Option(float, "How much you want to bet?", require
           colour= discord.Colour.brand_green()
         )
         new_embed.set_author(name=f"Blackjack with @{ctx.author.display_name} for a bet of {bet}")
-        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand), value=f"|", inline=False)
+        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand) + " for a total of " + str(total(dealer_hand)), value=f"|", inline=False)
         new_embed.add_field(name=f"You have a " + str(player_hand) + " for a total of " + str(total(player_hand)), value=f"|", inline=False)
         new_embed.add_field(name=f"You have less value than dealer, you lose, sorry.", value=f"|", inline=False)
         new_embed.set_footer(text=f"Code version - {code_version}")
@@ -1786,12 +1888,34 @@ async def blackjack(ctx, bet: Option(float, "How much you want to bet?", require
 
         await interaction.response.edit_message(embed=new_embed, view=None)
 
+      elif total(dealer_hand) >= 17 and total(dealer_hand) < 21 and total(dealer_hand) == total(player_hand):
+        new_embed = discord.Embed(
+          colour= discord.Colour.brand_green()
+        )
+        new_embed.set_author(name=f"Blackjack with @{ctx.author.display_name} for a bet of {bet}")
+        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand) + " for a total of " + str(total(dealer_hand)), value=f"|", inline=False)
+        new_embed.add_field(name=f"You have a " + str(player_hand) + " for a total of " + str(total(player_hand)), value=f"|", inline=False)
+        new_embed.add_field(name=f"It's a draw! You get your money back.", value=f"|", inline=False)
+        new_embed.set_footer(text=f"Code version - {code_version}")
+
+        cur.execute('''SELECT balance FROM balances WHERE servermemberid=?''', (gmid, ))
+        x = cur.fetchone()
+        for z in x:
+          balance = z
+          balance = round(balance, 2)
+        balance += bet
+        cur.execute('''UPDATE balances SET balance=? WHERE servermemberid=?''', (balance, gmid))
+
+        con.commit()
+
+        await interaction.response.edit_message(embed=new_embed, view=None)
+
       else:
         new_embed = discord.Embed(
           colour= discord.Colour.brand_green()
         )
         new_embed.set_author(name=f"Blackjack with @{ctx.author.display_name} for a bet of {bet}")
-        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand), value=f"|", inline=False)
+        new_embed.add_field(name=f"The dealer is showing a: " + str(dealer_hand) + " for a total of " + str(total(dealer_hand)), value=f"|", inline=False)
         new_embed.add_field(name=f"You have a " + str(player_hand) + " for a total of " + str(total(player_hand)), value=f"|", inline=False)
         new_embed.set_footer(text=f"Code version - {code_version}")
 
@@ -1817,6 +1941,160 @@ async def blackjack(ctx, bet: Option(float, "How much you want to bet?", require
 
   await ctx.respond(embed = embed, view = view)
 
+
+@bot.slash_command(description = "Check blackjack stats!") #---------------------------------------------------------------------------------------------------------Blackjack stats
+async def blackjackstats(ctx, member: Option(discord.Member, "Who to check? Blank if yourself.", required=False)):
+  if member == None:
+    gid = str(ctx.guild.id)
+    mid = str(ctx.author.id)
+    gmid = gid + mid
+
+    cur.execute('''SELECT winnings FROM blackjack WHERE servermemberid=?''', (gmid, ))
+    x = cur.fetchone()
+    if x:
+      for z in x:
+        winnings = float(z)
+    elif not x:
+      embed = discord.Embed(
+      colour = discord.Colour.brand_red(),
+      )
+      embed.add_field(name="Blackjack", value=f"You haven't played blackjack yet. First do that, then come back.")
+      embed.set_footer(text=f"Code version - {code_version}")
+      await ctx.respond(embed=embed)
+      return
+
+    cur.execute('''SELECT wins FROM blackjack WHERE servermemberid=?''', (gmid, ))
+    x = cur.fetchone()
+    if x:
+      for z in x:
+        wins = int(z)
+
+    cur.execute('''SELECT losses FROM blackjack WHERE servermemberid=?''', (gmid, ))
+    x = cur.fetchone()
+    if x:
+      for z in x:
+        losses = int(z)
+
+    cur.execute('''SELECT bets FROM blackjack WHERE servermemberid=?''', (gmid, ))
+    x = cur.fetchone()
+    if x:
+      for z in x:
+        bets = float(z)
+
+    winloss = wins/losses
+    averagebet = round((bets/(wins+losses)), 2)
+    averagewin = round((winnings/wins), 2)
+
+    if wins < 10:winsp = "　" + str(wins) + "　"
+    elif wins >= 10 and wins < 100:winsp = "　" + str(wins) + "　"
+    elif wins >= 100 and wins < 1000:winsp = "　" + str(wins) + "　"
+
+    if losses < 10:lossesp = "　 0" + str(losses) + "　"
+    elif losses >= 10 and losses < 100:lossesp = "　   " + str(losses) + "　"
+    elif losses >= 100 and losses < 1000:lossesp = "" + str(losses) + "　"
+
+    if winnings < 100:winningsp = "　" + str(winnings) + "　"
+    elif winnings >= 100 and winnings < 1000:winningsp = "　 " + str(winnings) + "　"
+    elif winnings >= 1000 and winnings < 10000:winningsp = "　" + str(winnings) + "　"
+
+    if winloss < 10:winlossp = "　" + str(winloss) + " 　"
+    elif winloss >= 10 and winloss < 100:winlossp = "　" + str(winloss) + "　　"
+    elif winloss >= 100 and winloss < 1000:winlossp = "　" + str(winloss) + "　"
+
+    if averagewin < 100:averagewinp = "　" + str(averagewin) + "　"
+    elif averagewin >= 100 and averagewin < 1000:averagewinp = "　 " + str(averagewin) + "　"
+    elif averagewin >= 1000 and averagewin < 10000:averagewinp = "　" + str(averagewin) + "　"
+
+    if averagebet < 10:averagebetp = "　" + str(averagebet) + "　"
+    elif averagebet >= 10 and averagebet < 100:averagebetp = "　" + str(averagebet) + "　"
+    elif averagebet >= 100 and averagebet < 1000:averagebetp = "　" + str(averagebet) + "　"
+
+    embed = discord.Embed(
+      colour= discord.Colour.brand_green()
+    )
+    
+    embed.set_author(name=f"Blackjack stats for {ctx.author.display_name}")
+    embed.add_field(name=f"| Wins | Losses | Winnings | Bets |", value=f"|{winsp}|{lossesp}|{winningsp}|{bets}|", inline=False)
+    embed.add_field(name=f"| Win/Loss | AvgWin | AvgBet |", value=f"|{winlossp}|{averagewinp}|{averagebetp}|", inline=False)
+    embed.set_footer(text=f"Code version - {code_version}")
+
+    await ctx.respond(embed=embed)
+
+  else:
+    guildid = str(ctx.guild.id)
+    memberid = str(member.id)
+    gmid = guildid + memberid
+
+    cur.execute('''SELECT winnings FROM blackjack WHERE servermemberid=?''', (gmid, ))
+    x = cur.fetchone()
+    if x:
+      for z in x:
+        winnings = float(z)
+    elif not x:
+      embed = discord.Embed(
+      colour = discord.Colour.brand_red(),
+      )
+      embed.add_field(name="Blackjack", value=f"They haven't played blackjack yet.")
+      embed.set_footer(text=f"Code version - {code_version}")
+      await ctx.respond(embed=embed)
+      return
+
+    cur.execute('''SELECT wins FROM blackjack WHERE servermemberid=?''', (gmid, ))
+    x = cur.fetchone()
+    if x:
+      for z in x:
+        wins = int(z)
+
+    cur.execute('''SELECT losses FROM blackjack WHERE servermemberid=?''', (gmid, ))
+    x = cur.fetchone()
+    if x:
+      for z in x:
+        losses = int(z)
+
+    cur.execute('''SELECT bets FROM blackjack WHERE servermemberid=?''', (gmid, ))
+    x = cur.fetchone()
+    if x:
+      for z in x:
+        bets = float(z)
+
+    winloss = wins/losses
+    averagebet = round((bets/(wins+losses)), 2)
+    averagewin = round((winnings/wins), 2)
+
+    if wins < 10:winsp = "　" + str(wins) + "　"
+    elif wins >= 10 and wins < 100:winsp = "　" + str(wins) + "　"
+    elif wins >= 100 and wins < 1000:winsp = "　" + str(wins) + "　"
+
+    if losses < 10:lossesp = "　 0" + str(losses) + "　"
+    elif losses >= 10 and losses < 100:lossesp = "　   " + str(losses) + "　"
+    elif losses >= 100 and losses < 1000:lossesp = "" + str(losses) + "　"
+
+    if winnings < 100:winningsp = "　" + str(winnings) + "　"
+    elif winnings >= 100 and winnings < 1000:winningsp = "　 " + str(winnings) + "　"
+    elif winnings >= 1000 and winnings < 10000:winningsp = "　" + str(winnings) + "　"
+
+    if winloss < 10:winlossp = "　" + str(winloss) + " 　"
+    elif winloss >= 10 and winloss < 100:winlossp = "　" + str(winloss) + "　　"
+    elif winloss >= 100 and winloss < 1000:winlossp = "　" + str(winloss) + "　"
+
+    if averagewin < 100:averagewinp = "　" + str(averagewin) + "　"
+    elif averagewin >= 100 and averagewin < 1000:averagewinp = "　 " + str(averagewin) + "　"
+    elif averagewin >= 1000 and averagewin < 10000:averagewinp = "　" + str(averagewin) + "　"
+
+    if averagebet < 10:averagebetp = "　" + str(averagebet) + "　"
+    elif averagebet >= 10 and averagebet < 100:averagebetp = "　" + str(averagebet) + "　"
+    elif averagebet >= 100 and averagebet < 1000:averagebetp = "　" + str(averagebet) + "　"
+
+    embed = discord.Embed(
+      colour= discord.Colour.brand_green()
+    )
+    
+    embed.set_author(name=f"Blackjack stats for {member.display_name}")
+    embed.add_field(name=f"| Wins | Losses | Winnings | Bets |", value=f"|{winsp}|{lossesp}|{winningsp}|{bets}|", inline=False)
+    embed.add_field(name=f"| Win/Loss | AvgWin | AvgBet |", value=f"|{winlossp}|{averagewinp}|{averagebetp}|", inline=False)
+    embed.set_footer(text=f"Code version - {code_version}")
+
+    await ctx.respond(embed=embed)
 
 ###################################################################################################################
 # ----------------------------------------------------------------------------------------------------Misc commands
